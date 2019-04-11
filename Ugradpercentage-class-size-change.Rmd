@@ -1,0 +1,109 @@
+---
+title: "Undergradate Class Percentage and Class Size Change in Intro/Non Intro Classes"
+author: "Henry Zhu"
+date: "April 8, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#The libraries needed to read in an excel file, clean the data(skipping first 3 blank lines), and tidy data are read.
+
+library(janitor)
+library(tidyverse)
+library(readxl)
+
+#These libraries below are needed to add a new theme to the data, animate my data, and repel some of the labels.
+
+library(ggthemes)
+library(gganimate)
+library(ggrepel)
+
+#Both the Spring 2019 enrollment and Spring 2018 enrollment data are read in, removing out missing course name points and selecting for only the columns that are needed to help me process through undergradate data and total data. Course ID is also needed when I join together the two data sets later through inner join.
+
+spring2019 <- read_xlsx("class_enrollment_summary_by_term_3.22.19.xlsx", skip=3) %>%
+  clean_names() %>%
+  filter(! is.na(course_name)) %>% 
+  select(course_id, course_title, course_name, course_department, u_grad,total)
+
+spring2018 <- read_xlsx("class_enrollment_summary_by_term_03.06.18 (3).xlsx", skip=3) %>%
+  clean_names() %>%
+  filter(! is.na(course_name)) %>% 
+  select(course_id, course_title, course_name, course_department, u_grad,total)
+```
+
+```{r, include=TRUE, echo=FALSE}
+#In order to be able to manipulate the data in a single data frame, I used an inner join to build more columns onto the spring 2019 data set, using course_id as my unifying variable since this is the least like to change from year-to-year. In order to differentiate the two years, I added a suffix to the column titles in relation to the year.
+
+change <-inner_join(spring2019, spring2018, by= "course_id", suffix = c(".2019", ".2018")) %>% 
+  
+#Due to the large number of courses, I decided visually it would be easiest if I limited my observations to classes that had at least 20 total students in 2019.
+  
+  filter(total.2019 >= 20) %>%
+  
+#An additional column was created which accounted for the difference between the total enrollment size of the two years.
+  
+  mutate(change = total.2019 - total.2018) %>% 
+  
+#Another column was created through mutate which calculated the percentage of undergraduates in each of the classes in relation to the total class size.
+  
+  mutate(ugradper= u_grad.2019/total.2019*100) %>%
+
+#Finally, I created a boolean variable that labeled each class on whether it was an intro or not an intro class, based on whether the word "Intro" was mentioned somehwere in the course name. The grepl and ifelse function allowed me to create this distinction.
+  
+  mutate(intro= ifelse(grepl("Intro", course_name.2019),"Intro Class", "Not an Intro Class")) %>%
+  
+#The appropriate columns were then chosen out and put in descending order based on total class size, which allowed for understanding the data table to be easier.
+  
+  select(course_title.2019, course_name.2019, total.2018, total.2019, u_grad.2019, u_grad.2018, change,ugradper,intro) %>%
+  arrange(desc(total.2019))
+
+#In order to create a scatterplot to visualize both class size change and percentage of undergraduates in connection to whether the class was considered an intro class, I mapped change of total enrollment on the X-axis and undergraduate percentage on the y-axis, with color indicating Intro Class.
+
+change %>%
+  ggplot(aes(x=change, y=ugradper, color=intro)) + geom_point() + 
+  
+#After downloading ggthemes, I selected the economist white theme to best show my two color differences. 
+  theme_economist_white() +
+
+#The legend title was removed since Intro/Non-Intro is self-explanatory.
+  
+  theme(legend.title=element_blank()) +
+
+#I used a function provided to me on stack overflow to add a percentage symbol to all of the points on the y-axis
+  #https://stackoverflow.com/questions/27433798/how-to-change-y-axis-range-to-percent-from-number-in-barplot-with-r
+  
+  scale_y_continuous(labels = function(x) paste0(x, "%")) +
+
+#The appropriate labels were given on the x and y axis, along with captions, titles, and subtitles.
+  
+  labs(x="Change in Size of Total Class Enrollment(Spring 2019-Spring 2018)", y= "Percentage of Undergrads in Class, 2019", 
+       title= "How does undergraduate percentage affect \nclass size changes for intro/non-intro \nclasses at Harvard?",
+       subtitle= "Intro Class: Contains 'Intro/Introduction' in Course Name Title",
+       caption="Note: Only Classes with 20 or More Total Students Shown\nSource: Harvard Course Registrar") + 
+  
+#Of interest are some of the outlier points, one of which is the point that lost more than 200 students in the class. In order to plot the title of that class visually, I used text repel and a label to plot that class, filtering out only for the Non/Intro Class and -200 change to isolate that point. 
+
+  geom_text_repel(data = subset(change,
+                                intro == "Not an Intro Class" &
+                                  change  < -200),
+                  mapping = aes(x = change,
+                                y = ugradper,
+                                label = course_name.2019), size = 4) +
+  
+#The above process is repeated for the bottom points in my Intro Class section, which had less than 25 percent undergraduate enrollment. I obviously changed my limiting factor to ugradper, keeping change on the x axis and using the course name as the label.
+  
+  geom_text_repel(data = subset(change,
+                                intro == "Intro Class" &
+                                  ugradper  < 25),
+                  mapping = aes(x = change,
+                                y = ugradper,
+                                label = course_name.2019), size = 4) +
+  
+#From the gganimate package, transition states helps me to alternate the Intro/No Intro data to show the distribution of points across those two options. The length of 2 provides users sufficient time to process the data. 
+  
+  transition_states(intro,
+                    transition_length = 2,
+                    state_length = 1)
+```
